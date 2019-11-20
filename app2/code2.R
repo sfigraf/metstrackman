@@ -31,3 +31,19 @@ inKzone <- -.95
 outKzone <- 0.95 
 kZone <- data.frame(x=c(inKzone, inKzone, outKzone, outKzone, inKzone),
                     y=c(botKzone, topKzone, topKzone, botKzone, botKzone)) 
+
+###function to get list of similar pitchers based off the cluster
+similarpitchersfunction <- function(pitchfiltered, pitchername){
+pitcherclust <- pitchfiltered[pitchfiltered$pitcher == paste(as.character(pitchername)), c("cluster")]
+similar.pitchers <- NULL
+
+for (i in 1:nrow(pitchfiltered)) {
+  if (pitchfiltered$cluster[i] == pitcherclust) {
+    
+    similar.pitchers[i] <- pitchfiltered$pitcher[i]
+  }
+}
+
+similar.pitchers <- na.omit(similar.pitchers)
+#print(as.character(similar.pitchers))
+}

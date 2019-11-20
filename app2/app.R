@@ -26,7 +26,7 @@ ui <- fluidPage(
                          
                          uiOutput("PitchesControl"), 
                          
-                         uiOutput("ParameterControl"),
+                         uiOutput("ClusterControl"),
                          
                          uiOutput("yearControl"),
                          
@@ -35,7 +35,8 @@ ui <- fluidPage(
       
       # Show a plot of the generated distribution
       mainPanel(
-         plotOutput("plot1")
+         plotOutput("plot1"),
+         textOutput("text1")
       )
 )
 
@@ -63,6 +64,16 @@ server <- function(input, output) {
     selectizeInput(inputId = "Pitch", label="Pitch:", choices=c(trackman %>% filter(pitcher==input$PitcherID))$pitch_type_auto,
                    options = list(placeholder='Choose a Pitch' , onInitialize = I('function() { this.setValue(""); }'))
     )
+  })
+  
+  ####### Cluster control
+  
+  output$ClusterControl<-renderUI({
+    validate(
+      need(input$Pitch != "", message=FALSE) #if a pitch isn't selected, this won't show
+    )
+    sliderInput(inputId = "Cluster", label="Number of Clusters:", min = 1, max = 10, value = 3)
+
   })
   
 #####Data Housekeeping
@@ -102,6 +113,10 @@ server <- function(input, output) {
       hclust(distance.matrix())
     })
     
+    cluster <- reactive({ cutree(hc1(),
+                                 k = input$Cluster)
+    })
+    
    output$plot1 <- renderPlot({
      validate(
        need(input$PitcherID !="", message="Choose a Pitcher"),
@@ -111,15 +126,37 @@ server <- function(input, output) {
      
      #Warning: Error in as.double: cannot coerce type 'closure' to vector of type 'double'
      #solution: put hc1 as reactive so hc1()
-     #now error: object pitch type auto not found
+     #now error: object pitch type auto not found. \
+     #solution: idn't need to have trackman.subset reactive, so I was trying to groupby the inputs instead of just pitcher name and pitch type
      plot(hc1())
-      # generate bins based on input$bins from ui.R
-      # x    <- faithful[, 2]
-      # bins <- seq(min(x), max(x), length.out = input$bins + 1)
-      # 
-      # # draw the histogram with the specified number of bins
-      # hist(x, breaks = bins, col = 'darkgray', border = 'white')
+     rect.hclust(hc1(),
+                 k = input$Cluster,
+                 border = 1:3)
+      
    })
+   
+   pitchfiltered <- reactive({data.frame(
+     trackman.subset %>%
+       filter(pitch_type_auto == input$Pitch) %>%
+       ungroup() %>%
+       mutate(cluster = cluster()) 
+   )
+  })
+   #might need text output here
+   # similarpitchers <- reactive({
+   #   similarpitchersfunction(pitchfiltered(),input$PitcherID)
+   #   })
+   
+   output$text1 <- renderText({
+     validate(
+       need(input$PitcherID !="", message=FALSE),
+       need(input$Pitch !="", message=FALSE)
+       
+     )
+     
+     
+     similarpitchersfunction(pitchfiltered(),input$PitcherID)
+     })
 }
 
 # Run the application 
