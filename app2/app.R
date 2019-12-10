@@ -11,6 +11,9 @@ trackman <- read_csv("20190924-ChaseField-1.csv")
 
 source("code2.r")
 
+##TO DO: 
+#new tab explaining what's going on, how the metrics are used to group a pitcher together
+#labeling the dnedrogram
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -19,7 +22,8 @@ ui <- fluidPage(
    titlePanel("Clusters"),
    
    # Sidebar 
-     column(3, wellPanel(style='overflow: hidden',
+   
+     column(6, wellPanel(style='overflow: hidden',
                          h3("Select Pitcher Data"),
                          
                          uiOutput("PitcherControl"),
@@ -32,12 +36,24 @@ ui <- fluidPage(
                          
                          HTML('<hr >'))
       ),
+   column(width = 6, 
+          wellPanel(style='overflow: hidden',
+                      h3("Select Metric Data"),
+                      
+                      uiOutput("xaxisControl"),
+                      
+                      uiOutput("yaxisControl"),
+                      
+                      HTML('<hr >'))
+      ),
       
       # Show a plot of the generated distribution
-      mainPanel(
-         plotOutput("plot1"),
-         textOutput("text1")
-      )
+   mainPanel(
+     tabsetPanel(
+       tabPanel(h4("HClusters"),plotOutput("plot1"),textOutput("text1")),
+       tabPanel(h4("Metrics"),plotOutput("plot2"))
+     )
+   )
 )
 
 
@@ -45,6 +61,7 @@ ui <- fluidPage(
 server <- function(input, output) {
   
   Pitchers <-unique(trackman$pitcher)
+  metrics <- colnames(trackman.subset)
   #Pitches <-unique(trackman$pitch_type_auto)
   
   ##############Make UI controls###############################
@@ -76,31 +93,37 @@ server <- function(input, output) {
 
   })
   
-#####Data Housekeeping
-  
-  trackman.subset <- data.frame(
-    ##this is potentially the porblem here
-    trackman %>% 
-      group_by(pitcher,pitch_type_auto) %>%
-      summarize(spin_rate = mean(spin_rate),
-                horz_break = mean(horz_break),
-                vert_break = mean(vert_break),
-                tilt = mean(tilt),
-                extension = mean(extension),
-                rel_speed = mean(rel_speed),
-                spin_axis = mean(spin_axis))
+  ####### X axis Metric control
+  output$xaxisControl<-renderUI({
+    selectizeInput(inputId="xaxismetric",label="X Axis:", choices=metrics, 
+                   
+                   options = list(placeholder='Choose a Metric', onInitialize = I('function() { this.setValue(""); }')) #makes it blank at startup
     )
+  })
   
+  ####### Y Axis Metric control
+  
+  output$yaxisControl<-renderUI({
+    selectizeInput(inputId="yaxismetric",label="Y Axis:", choices=metrics, 
+                   
+                   options = list(placeholder='Choose a Metric', onInitialize = I('function() { this.setValue(""); }')) #makes it blank at startup
+    )
+  })
+  
+#####Data Housekeeping
+
+  
+  #####Cluster Data
     trackman.scaled <- reactive({ data.frame(
       scale(trackman.subset %>%
                                filter(pitch_type_auto == input$Pitch) %>%
                                ungroup() %>%
-                               select(spin_rate,
-                                      horz_break,
-                                      vert_break,
-                                      extension,
-                                      rel_speed,
-                                      spin_axis))
+                               select(Spin.Rate,
+                                      Horz.Break,
+                                      Vert.Break,
+                                      Extension,
+                                      Spin.Axis,
+                                      Velocity))
     )})
     #Error in .getReactiveEnvironment()$currentContext() : 
     #Operation not allowed without an active reactive context
@@ -116,7 +139,25 @@ server <- function(input, output) {
     cluster <- reactive({ cutree(hc1(),
                                  k = input$Cluster)
     })
+  ###pitch filtered data for similar pitchers function and text output 
+    pitchfiltered <- reactive({data.frame(
+      
+      trackman.subset <- trackman.subset %>%
+        filter(pitch_type_auto == input$Pitch) %>%
+        ungroup() %>%
+        mutate(cluster = as.factor(cluster())) #so that there's not a graident for a color pallete in plot2
+    )
+    })
+  
+    ###Metrics graph data; user can choose which metrics to display
+    trackman.metrics <- reactive({data.frame(
+      pitchfiltered()[,c(input$xaxismetric, input$yaxismetric,"pitcher","pitch_type_auto","cluster")]
+      
+    )})
+
+########PLOTS
     
+###plot 1    
    output$plot1 <- renderPlot({
      validate(
        need(input$PitcherID !="", message="Choose a Pitcher"),
@@ -135,28 +176,41 @@ server <- function(input, output) {
       
    })
    
-   pitchfiltered <- reactive({data.frame(
-     trackman.subset %>%
-       filter(pitch_type_auto == input$Pitch) %>%
-       ungroup() %>%
-       mutate(cluster = cluster()) 
-   )
-  })
-   #might need text output here
-   # similarpitchers <- reactive({
-   #   similarpitchersfunction(pitchfiltered(),input$PitcherID)
-   #   })
+   
+   
    
    output$text1 <- renderText({
      validate(
        need(input$PitcherID !="", message=FALSE),
        need(input$Pitch !="", message=FALSE)
+     )
+     
+     #paste("Pitchers with a profile similar to", as.character(input$PitcherID)) #, "based off", as.character(colnames(trackman.scaled)))
+     similarpitchersfunction(pitchfiltered(),input$PitcherID)
+     
+     
+     })
+   
+   output$plot2 <- renderPlot({
+     validate(
+       need(input$xaxismetric !="", message="Choose a X Axis Metric"),
+       
+       need(input$yaxismetric !="", message="Choose a Y Axis Metric"),
+       need(input$Pitch !="", message="Choose a Pitch")
        
      )
      
-     
-     similarpitchersfunction(pitchfiltered(),input$PitcherID)
-     })
+     #Warning: Error in : `data` must be a data frame, or other object coercible by `fortify()`, not an S3 object with class uneval
+     #Did you accidentally pass `aes()` to the `data` argument?
+     #fixed by putting trackman.metrics() in front
+     trackman.metrics() %>%
+       ggplot(aes(x = trackman.metrics()[[1]],
+                  y = trackman.metrics()[[2]])) +
+       geom_jitter(aes(color = cluster, size = 3)) + #use geom_jitter when you don't want overlap between the points
+       geom_text(aes(label = pitcher)) +
+       labs(title=paste0(input$Pitch, " Metrics"),
+            x =paste0(input$xaxismetric), y = paste0(input$yaxismetric))
+   })
 }
 
 # Run the application 
